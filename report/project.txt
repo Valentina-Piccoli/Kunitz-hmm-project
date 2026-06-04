@@ -1,0 +1,173 @@
+PROJECT
+1) find protein structures containing kuniz domain 
+=> go to pdb advanced search:  
+      Identifier = "PF00014"
+      AND
+      Annotation Type = "Pfam"
+      AND
+      Data Collection Resolution <= 3.5
+      AND
+      Polymer Entity Sequence Length > 40
+      AND
+      Polymer Entity Sequence Length < 70
+- the min,max length is to select structures with just kuniz domain
+
+Then click on tabular report, then "Select Report" = "create custom Report", then select under "Polymer Entity Data" the fields: "entity ID", "sequence", "Auth Asym ID". NB => WE SHOULD SELECT ALSO THE PFAM IDENTIFIER
+
+OBSERVATION: For the same PDB entity there might be also chains that are not kunitz domain (= longer seq) but they are cocristallized. If in the tabular report a structure is an homodimer, just the first dimer has the seq (= chain A) then the following other are leaved empty (they has just the Auth Asym ID field with the name of the chain).
+
+2) FILTER & CLEAN DATA
+Try to keep just the seq of the kuniz domain, remove homodimers chains and also chains of cocristallized dimers:
+=> awk -F "," '{if (($1!="") && length($2)<80 && length($2)>40) print $1, $3, $2} rcsb_pdb_custom_report_20260414150731.csv | tr -d '"'| less --> remove the empty row (= homodimers), exclude the too long & too short seq (= chains of cocristallized domains that are not kuniz), then check the similarity between the downloaded seq (= redundancy)
+
+=> awk -F "," '{if (($1!="") && length($2)<80 && length($2)>40) print $1, $3, $2} rcsb_pdb_custom_report_20260414150731.csv | tr -d '"'| awk '{ print ">"$1$3; print $2}' > pdb_
+- F --> to specify the field separator used to divide input records into fields
+
+=> grep -v "^," rcsb_pdb_custom_report_20260414150731.csv | tr -d '"' | tr "," "" | less
+
+Now we have to check for redundancy (same seq present multiple times, maybe due to different experimental techniques). In order to solve this problem, try to cluster the seqs using mmseq_2.: it uses pairwise local alignment and cluster seqs based on level of seq. identity & coverage. Set seq.identity=0.9  & coverage=0.9 (try with different values until you get a good cluster). Seqs in the same cluster are very similar (=redundant), so at the end we will consider just one seq for each cluster (maybe the one with best resolution). At the end we should remain with just 10~20 structures with no redundancy => put them in pdb_seqs.clust.
+
+mmseq2 --> upload a set of seqs with the Uniprot IDs, the tool will  (https://toolkit.tuebingen.mpg.de/tools/mmseqs2)
+NO too strictly sequence identity otherwise we obtain too few clusters
+
+Alternative:
+- https://www.dsimb.inserm.fr/mulpba/
+- https://search.foldseek.com/foldmason
+
+=> grep -A 1 ^Clus pdb_seqs.clust
+=> grep -A 1 ^Clus pdb_seqs.clust | grep ">" | wc
+=> grep -A 1 ^Clus pdb_seqs.clust | grep ">" | tr -d ">" > pdb_id.rep --> save only the PDB ids in a new file
+
+download all the pdb structure corresponding to ids in the pdb_id.rep
+=> for i in $(cat pdb_ids.clusters); do wget "http://files.rcsb.org/view/"$i".pdb; done
+=> [better] for i in $(awk -F ':' '{print $1}' pdb_ids.clusters); do wget "http://files.rcsb.org/view/"$i".pdb; done
+Now for each downloaded pdb file, read it until we reach the first row starting with ATOM, then check if the chain is equal to the one we are looking for
+
+while IFS=$':' read -r pdb chain; do echo $pdb $chain; done < pdb_ids.clusters
+
+while IFS=$':' read -r pdb chain; do python get_chain.py "./structures/"$pdb".pdb" $chain > "./chains/"$pdb"_"$chain".pdb"; done < pdb_ids.clusters
+
+EXTRA CHECK: as we said some structure can be not part of this family, we can confirm this by looking to the multiple sequence alignment obtained from the multiple structure alignment (eg: 1D0DA, 3FP7J). We can remove these structure and rerun the structure alignment (when remove a structure we can previously check it on pdb, go to the corresponding uniport page and search if it contains the PF00014 domain, if not remove it)
+
+Now we have to reformat the final sequence alignment by selecting just the line of the alignment
+=> tail .n +26 my_alignm.txt | head -n 20 | awk '{print ">"$1; print $2}' > kunitz.ali 
+
+then run the model with hmmer
+=> hmmbuild kunitz.hmm kunitz.ali
+ 
+3) MULTIPLE STRUCTURE ALIGNMENT
+Make some multiple sequence alignment in order to check weird situation or problems. If all is ok go on with multiple structural alignment. Align all PDB structures in pdb_id.rep. 
+
+4) MULTIPLE SEQUENCE ALIGNEMNT 
+From the multiple structure alignment, extract the multiple sequence alignment and use it to make the model with hmmer
+
+
+[repeat all this pipline with different parameters]
+- use less stringent parameters in clustering (eg: 0.9, 0.95)
+
+-------------------------------------------------------------------------
+
+VALIDATION
+
+Go to advance search on uniport:
+1) Generate the positive dataset with the following search:
+=> (reviewed:true) AND (xref:pfam-PF00014)
+2) Generate the negative dataset with the following search:
+=> (reviewed:true) NOT (xref:pfam-PF00014)
+
+Check what we have downloaded:
+=> zcat -f positive_dataset.fasta.gz | grep "^>" | wc --> must be 398
+=> zcat -f negative_dataset.fasta.gz | grep "^>" | wc --> must be 574229
+
+Convert the downloaded file into fasta file
+=> zcat -f positive_dataset.fasta.gz > positive_kunitz.fasta
+=> zcat -f negative_dataset.fasta.gz > positive_kunitz.fasta
+
+Check the performance of our model. We have to separate our datatest (pos+neg) into training & test set, then run hmmsearch on each test (NB: remember to specify in hmmsearch the parameters of #test=max(size(training), size(test), in order to obtain comparable e-values).
+6) Run hmmsearch on the negative dset
+=> hmmsearch --max --noali --tblout negative_kunitz.search -Z 1000 kunitz.hmm negative_kunitz.fasta --> PREDICTION ON THE NEGATIVE SET (TN & FP)
+--max --> remove the heuristic, takes more time to be execute but we should obtain better result
+specifying 1000 is useful because:
+- if we obtain e-value=10 & #test=1000 => false_discovery_rate = 0.1 % (prob that a random result have the same score)
+7) Run hmmsearch on the positive set
+=> hmmsearch --max --noali --tblout positive_kunitz.search -Z 1000 kunitz.hmm positive_kunitz.fasta --> PREDICTION ON THE POSITIVE SET (TP & FN)
+
+Clean the result by removing the header & keep just PDB id (=col1) and e-value (= col8):
+grep -v '^#' negative_kunitz.search | less --> remove the header's row, obtain just the line of data
+=> grep -v '^#' negative_kunitz.search | awk '{print $1,$8}' | wc -->  OBSERVATION: much less results (=574229) than size(negative_set)
+=> grep -v '^#' negative_kunitz.search | awk '{print $1'\t'$8'\t0'}' > negative_kunitz.match --> we append to each row the label 0 (=negative class)
+=> grep -v '^#' positive_kunitz.search | awk '{print $1'\t'$8'\t1'}' > positive_kunitz.match
+=> wc positive_kunitz.match (398)
+
+NB: we have to include in the negative_kunitz.match the sequences that have obtain no match (=TRUE NEGATIVE), specifing a corresponding e-value really high:
+=> sort -grk 2  negative_kunitz.search --> OBSERVATION: max e-value = 
+We can assign to the missing sequence an e-value that is greater than the max e-value obtained before
+=> grep '^>' negative_kunitz.fasta | awk '{print $1}' | tr -d ">" | sort > negative_kunitz.ids --> NB: they must be sorted 574229
+NB: no_matched_seqs = neg_seqs - matched_seq
+=> awk '{print $1}' negative_kunitz.match | sort > negative_kunitz_match.ids --> generates a file containing the PDB ids of the negative sequences that obtain a match in hmmsearch
+=> comm -23 negative_kunitz.ids negative_kunitz_match.ids
+-23 --> do not print col2 (=lines only in the second file) and col3 (= intersection), so it returns the lines present just in the first file
+=> comm -23 negative_kunitz.ids negative_kunitz_match.ids | less | awk'{print $1"\t100\t0"}' > negative_kunitz.nomatch --> predicted TRUE NEGATIVE
+=> cat negative_kunitz.match negative_kunitz.nomatch | sort -R > tot_negative_kunitz.match --> we obtain the final predicted negative set (shaffled to avoid bias)
+
+Now divide pos+neg sets into training & test set:
+head -n 199 positive_kunitz.match > kunitz_set_1.txt --> 199 is the half 
+tail -n 199 positive_kunitz.match > kunitz_set_2.txt
+[do the same for the negative set]
+head -n 287115 negative _kunitz.match >> kunitz_set_1.txt --> 287115 is the half 
+tail -n 287115 negative _kunitz.match >> kunitz_set_2.txt
+At this point we have generate the two dataset, training & dataset:
+- training set --> kunitz_set_1.txt
+- test set --> kunitz_set_2.txt
+
+=> wc kunitz_set_1.txt kunitz_set_2.txt
+287314 861942 7781805 kunitz_set_1.txt
+287313 861939 7781966 kunitz_set_2.txt
+574627 1723881 15563771 total
+
+Now we have to run the our python script (performance.py) to evaluate the performance:
+=> for i in `seq 1 15`< do python3 ./performance.py kunitz_set_1 1e-$i; done > kunitz_set_1.results --> run performance.py with different e-value threshold (BEST threshold =
+=> for i in `seq 1 15`< do python3 ./performance.py kunitz_set_2 1e-$i; done > kunitz_set_2.results  
+NB: if we used different values in the -Z params in hmmsearch we will obtain different e-value threshold
+
+GOAL of our CROSS VALIDATION: find the best e-value e-treshold in the first set and apply it on the second set
+
+The majority of the best/low e-value are in the top part of the file and in the last part we have the bad cases. When we split the positive dataset into training & test, we have split into two halves without shaffold them so the first set there are the best result and in the second one the worst => TO DO: shaffold it before split (maybe try multiple times with different shaffold in order to understand how stable it is, it depends on how the 4 FN distributes positive with higher e-values)
+
+=> paste kunitz_set_1.results kunitz_set_2.results | awk 'SELECT THE COLUMN OF INTEREST}  
+paste -->  align the content of 2+ file row by row, useful to compare them (like put two paper side by side and read both row by row)
+
+ 
+
+for the different threshold we get 
+
+We have obtain very good results, because the kunitz domain is very conserved. The only things that avoid us from perfection are the 4 FALSE NEGATIVE in the pos_kunitz set --> when we use a e-value threshold (eg: 10^-5) the matches with lower e-value are wrongly classified as negative 
+
+FOR THE RESULTS ANALYSIS:
+check the 4 false negative in order to explain why we misclassified them. It can be due to wrong annotation (look at uniprot). We can check it by performing:
+- a (seq) alignment between each false negative seq with our hmm model
+- [if false negative seq has a structure] made a structural alignment with the structures used to build the model --> see if the false negative structure is different
+- [if false negative seq has not a structure] predict the structure with alphafold
+- check if false positive are really false or if in reality are protein with kuniz annotation in uniport but not in PFAM. 
+
+
+CHIEDI:
+
+
+At the moment we used all the proteins available in uniport, some of the structures used from pdb could not potentially be the same as the uniport ones we used for cross validation. BUUUT the ones we used to build the model (the sequences corresponding to the pdb structures) are also considered in the cross validation => BIAS. To be precise we should exclude them from the cross validation. 
+TODO: use mapid in uniprot to map pdb id into 
+poi fai intersezione tra risultati ottenuti e uniprot id  nel positive set (=> i risultati precedenti contengono anche gli uniprot id delle proteine cocristallizate che non sono kunitz domain e cche noi nelle structures abbaiamo eliminato)
+
+
+---------------------------------------------------
+28/04
+manipulate a threshold file by putting in test2 as best threshold value 0.0001 (instead of 0e-5 as test1)
+
+PRESENCE OF FALSE NEGATIVE: correspond to the ones with low e-value in pos set (maybe the PFAM classification is wrong, check it manually on uniport)
+
+
+- What are the result of the selection (clean data process)
+- after the alignment what are the observation about the hmm we obtain (eg: the 6 cysteine are well conserved? other important aa? Show it by using a sequence logo https://skylign.org/
+- print confusion matrix
+- include supplementary materials (file with list of PDB code used for generating the model, kunitz.hmm, cite them in the test) 
+- plot the curve of the optimization

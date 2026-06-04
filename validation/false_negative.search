@@ -1,0 +1,18 @@
+#                                                                   --- full sequence ---- --- best 1 domain ---- --- domain number estimation ----
+# target name            accession  query name           accession    E-value  score  bias   E-value  score  bias   exp reg clu  ov env dom rep inc description of target
+#    ------------------- ---------- -------------------- ---------- --------- ------ ----- --------- ------ -----   --- --- --- --- --- --- --- --- ---------------------
+sp|Q8MVC4|TFPIL_IXOSC    -          kunitz_msa           -              2e-13   46.0  35.4   1.4e-05   20.9   2.1   6.5   5   2   1   6   6   6   4 Penthalaris OS=Ixodes scapularis OX=6945 PE=1 SV=1
+sp|Q8WPG5|KUNI_ORNKA     -          kunitz_msa           -            2.8e-05   20.0   6.4   0.00021   17.1   1.0   2.4   2   0   0   2   2   2   2 Thrombin inhibitor savignin OS=Ornithodoros kalahariensis OX=1580572 PE=1 SV=1
+sp|A0A1Q1NL17|HA11_HYAAI -          kunitz_msa           -             0.0042   13.0   4.4    0.0087   12.0   4.4   1.5   1   1   0   1   1   1   1 Kunitz-type anticoagulant protein HA11 OS=Hyalomma asiaticum OX=266040 GN=HA11 PE=2 SV=1
+sp|O62247|BLI5_CAEEL     -          kunitz_msa           -                0.2    7.6   7.6     0.012   11.5   1.4   2.3   2   1   0   2   2   2   0 Kunitz-type protein bli-5 OS=Caenorhabditis elegans OX=6239 GN=bli-5 PE=1 SV=1
+sp|D3GGZ8|BLI5_HAECO     -          kunitz_msa           -                2.3    4.2   7.9      0.14    8.1   1.5   2.3   2   1   0   2   2   2   0 Kunitz-type protein bli-5 OS=Haemonchus contortus OX=6289 GN=bli-5 PE=3 SV=1
+#
+# Program:         hmmsearch
+# Version:         3.4 (Aug 2023)
+# Pipeline mode:   SEARCH
+# Query file:      kunitz.hmm
+# Target file:     false_negative.fasta
+# Option settings: hmmsearch --tblout false_negative.search --noali --max -Z 1000 kunitz.hmm false_negative.fasta 
+# Current dir:     /mnt/d/Scuola/University/BIOINFORMATICS/Lab_bioinfo_I/Capriotti/Project
+# Date:            Thu May 14 22:02:34 2026
+# [ok]
