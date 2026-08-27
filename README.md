@@ -105,9 +105,9 @@ The following steps require external web servers:
 | MCC | 0.9923 |
 | Accuracy | 0.9999 |
 | True Positives | 385 / 390 |
-| False Negatives | 5 |
-| False Positives | 1 |
-| True Negatives | 574,228 |
+| False Negatives | 5 / 390 |
+| False Positives | 1  / 574,2229 |
+| True Negatives | 574,228 / 574,2229 |
 
 ---
 
